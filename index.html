@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>Compatible API request preflight</title>
+<style>body{font:16px/1.6 system-ui,sans-serif;max-width:850px;margin:32px auto;padding:0 20px;color:#18202b;background:#f9fbff}label{font-weight:650;display:block;margin-top:20px}input,textarea{box-sizing:border-box;width:100%;padding:12px;font:14px/1.5 monospace;border:1px solid #a8b3c4;border-radius:8px}button{margin:16px 0;padding:10px 18px;font:inherit}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#eaf0f8;padding:18px}small{display:block}</style>
+<h1>Compatible API request preflight</h1>
+<p>Inspect request shape before sending it. This page runs locally: no request, upload, model lookup, analytics, or saved input.</p>
+<p><strong>Never paste a real key or a private prompt.</strong> Use synthetic examples. This is a limited structural checker, not a complete protocol validator or proof of model compatibility.</p>
+<form id="check"><label for="base">Base URL</label><input id="base" type="text" value="https://cloudgpu.app/v1" autocomplete="off" spellcheck="false">
+<label for="body">Synthetic chat request JSON</label><textarea id="body" rows="10" autocomplete="off" spellcheck="false">{
+  "model": "REPLACE_WITH_VERIFIED_OPEN_MODEL_ID",
+  "messages": [{"role": "user", "content": "Hello"}],
+  "stream": false
+}</textarea><button type="submit">Check locally</button></form>
+<pre id="report" role="status" aria-live="polite">No check has run.</pre>
+<h2>Limits</h2><ul><li>Checks common base-URL and body-shape mistakes only.</li><li>Does not inspect request headers, availability, credentials, tool behavior, safety, model quality, or resource use.</li><li>A passing local check does not mean the service will accept the request.</li><li>Report text omits the supplied prompt and field values. Inputs are not saved by this page.</li></ul>
+<small>I work on CloudGPU. AI assisted preparation; local JavaScript tests passed. Browser execution and accessibility review are still pending. Contact: yang@cloudgpu.app</small>
+<p><a href="https://cloudgpu.app/?utm_source=preflight_tool&amp;utm_medium=referral&amp;utm_campaign=202611_seg04_codingagent_api&amp;utm_content=local_request_shape" rel="noreferrer">CloudGPU</a> — optional link, opened only if you choose.</p>
+<script>
+function validatePreflight(baseUrl, raw) {
+  const findings = [];
+  const add = (level, code, message) => findings.push({level, code, message});
+  if (typeof raw !== 'string' || raw.length > 50000) {
+    add('error','input_size','Use a request body under 50,000 characters.'); return findings;
+  }
+  let url;
+  try { url = new URL(baseUrl); } catch (_) { add('error','base_url','Enter a complete base URL.'); }
+  if (url) {
+    if (url.protocol !== 'https:') add('warning','transport','Use HTTPS for a remote service.');
+    if (url.username || url.password || url.search || url.hash) add('error','url_secret','Remove credentials, query parameters and fragments from the base URL.');
+    if (/\/v1\/v1(?:\/|$)/i.test(url.pathname)) add('error','duplicate_v1','The base URL contains a repeated /v1 segment.');
+    if (/\/(?:chat\/completions|completions|embeddings|responses)\/?$/i.test(url.pathname)) add('error','full_endpoint','This looks like a complete endpoint path. A client expecting a base URL may append that path again.');
+  }
+  let body;
+  try { body = JSON.parse(raw); } catch (_) { add('error','json','The request body is not valid JSON. Its text is not included in this report.'); return findings; }
+  if (!body || Array.isArray(body) || typeof body !== 'object') { add('error','object','The request body must be a JSON object.'); return findings; }
+  function walk(value, depth) {
+    if (!value || typeof value !== 'object') return;
+    if (depth > 12) { add('warning','depth','Deeply nested content was not fully inspected.'); return; }
+    for (const [key, v] of Object.entries(value)) {
+      if (/^(authorization|api[_-]?key|access[_-]?token|password|secret)$/i.test(key)) add('error','secret_field','A credential-like field is present. Remove it; do not put real credentials in this tool.');
+      if (typeof v === 'string' && /\bsk-[A-Za-z0-9_-]{12,}/.test(v)) add('error','secret_value','A token-like value is present. Remove it and review whether it should be rotated.');
+      if (v && typeof v === 'object') walk(v, depth + 1);
+    }
+  }
+  walk(body,0);
+  if (typeof body.model !== 'string' || body.model.trim().length === 0) add('error','model','Set an explicit model identifier. This tool does not fetch a model catalog.');
+  else if (/REPLACE|YOUR[_-]?MODEL|PLACEHOLDER|<|>/i.test(body.model)) add('error','model_placeholder','Replace the model placeholder with an identifier verified in the service documentation.');
+  if (!Array.isArray(body.messages) || body.messages.length === 0) add('error','messages','This chat-request checker expects a nonempty messages array.');
+  else body.messages.forEach((m, index) => {
+    if (!m || Array.isArray(m) || typeof m !== 'object' || typeof m.role !== 'string' || m.role.trim().length === 0) add('error','message_role','A message is missing a string role (index '+index+').');
+    else if (typeof m.content !== 'string' && !Array.isArray(m.content) && !(m.content == null && Array.isArray(m.tool_calls) && m.tool_calls.length)) add('error','message_content','A message needs string/array content or a tool-call payload (index '+index+').');
+    if (m && Array.isArray(m.content)) add('warning','multimodal','Array content requires service- and model-specific validation; this checker does not establish support.');
+  });
+  if ('stream' in body && typeof body.stream !== 'boolean') add('error','stream_type','stream must be a JSON boolean, not a string.');
+  if ('prompt' in body && 'messages' in body) add('warning','mixed_shapes','The body includes both prompt and messages. Check which request shape the endpoint accepts.');
+  return findings;
+}
+/* UI_START */
+const form = document.getElementById('check');
+form.addEventListener('submit', function(event) {
+  event.preventDefault();
+  const findings = validatePreflight(document.getElementById('base').value, document.getElementById('body').value);
+  const report = document.getElementById('report');
+  report.textContent = findings.length ? findings.map(x => x.level.toUpperCase()+': '+x.message).join('\n') : 'No listed preflight issues found. This is not an endpoint test.';
+});
+</script></html>
