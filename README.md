@@ -1,6 +1,6 @@
 # CloudGPU developer tools and CPU notebooks
 
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/mrhy7176/cloudgpu-notebooks/blob/main/chunked-cosine-cpu.ipynb)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cloudgpu-app/cloudgpu-notebooks/blob/main/chunked-cosine-cpu.ipynb)
 
 ## Compatible API request preflight
 
